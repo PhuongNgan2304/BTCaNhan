@@ -1,26 +1,42 @@
 import React, { useRef, useEffect, useState } from 'react';
-import { ScrollView, View, Text, StyleSheet, Image, TouchableOpacity } from 'react-native';
+import { ScrollView, View, Text, StyleSheet, Image, TouchableOpacity, TextInput, Animated } from 'react-native';
 import Swiper from 'react-native-swiper';
-import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigators/AppNavigator';
-import { Ionicons, MaterialIcons } from '@expo/vector-icons';
+import { MaterialIcons } from '@expo/vector-icons';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { useFonts } from 'expo-font';
 import { useNavigation } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import ProductCarousel from '../components/ProductCarousel';
-import FooterNavigation from '../components/FooterNavigation';
+import CategoriesComponent from '../components/CategoriesComponent';
+import CategoryProductList from '../components/CategoryProductList';
 
 
 type HomeScreenNavigationProp = StackNavigationProp<RootStackParamList, 'HomeScreen'>;
-
 
 const HomeScreen = () => {
   const navigation = useNavigation<HomeScreenNavigationProp>();
   const [greeting, setGreeting] = useState('');
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const swiperRef = useRef<Swiper>(null); // Tạo tham chiếu cho Swiper
+  const [userName, setUserName] = useState('');
+  const [topSellingProducts, setTopSellingProducts] = useState([]);
+
+  const openSearchScreen = () => {
+    navigation.navigate("SearchScreen"); // Điều hướng sang màn hình tìm kiếm
+  };
+
+
+  useEffect(() => {
+    const fetchUserName = async () => {
+      const storedUserName = await AsyncStorage.getItem('userName');
+      if(storedUserName){
+        setUserName(storedUserName);
+      }
+    };
+    fetchUserName();
+  }, [])
 
   useEffect(() => {
     const updateGreeting = () => {
@@ -41,6 +57,56 @@ const HomeScreen = () => {
     };
     checkLoginStatus();
   }, []);
+
+  useEffect(() => {
+    const fetchTopSellingProducts = async () => {
+      try {
+        //const response = await fetch('http://192.168.2.9:5000/api/home/products/top-selling', {
+        const response = await fetch('http://192.168.8.69:5000/api/home/products/top-selling', {
+          method: 'GET',
+          headers: {
+            "Content-Type": "application/json",
+          },
+        });
+
+        if (!response.ok) {
+          throw new Error('Failed to fetch products');
+        }
+
+        const jsonResponse = await response.json();
+        console.log("Fetched top selling products:", JSON.stringify(jsonResponse, null, 2));
+
+        if (jsonResponse.success && jsonResponse.data) {
+          // Định nghĩa kiểu dữ liệu cho item
+          const formattedProducts = jsonResponse.data.map((item: {
+            _id: string;
+            productDetails: {
+              name: string;
+              imageUrl: string;
+              price: Record<string, number>;
+            };
+          }) => {
+            const details = item.productDetails || {}; 
+            const prices = details.price || {}; 
+
+            return {
+              id: item._id,  
+              name: details.name || "Không có tên",
+              imageUrl: details.imageUrl || "https://example.com/default.jpg", 
+              size: Object.keys(prices).length > 0 ? Object.keys(prices) : ['S', 'M', 'L'], 
+              price: prices, 
+            };
+          });
+
+          setTopSellingProducts(formattedProducts);
+        }
+      } catch (error) {
+        console.error("Error fetching top selling products:", error);
+      }
+    };
+
+    fetchTopSellingProducts();
+}, []);
 
   const getGreeting = () => {
     const hour = new Date().getHours();
@@ -98,6 +164,11 @@ const HomeScreen = () => {
       <ScrollView style={styles.container}
                   contentContainerStyle={{ paddingBottom: 120 }}
                   showsVerticalScrollIndicator={false}>
+                  
+        <Animated.View style={styles.headerBackground}>
+          <Text style={styles.websiteName}>DrinkUp</Text>
+        </Animated.View>
+
         {/* Header */}
         <View style={styles.header}>
           <View style={styles.headerLeft}>
@@ -107,15 +178,39 @@ const HomeScreen = () => {
             />
             <View>
               <Text style={styles.greeting}>{greeting}</Text>
-              <Text style={styles.role}>{isLoggedIn ? 'Thành viên' : 'Khách'}</Text>
+              <View style={styles.authContainer}>
+                <Text style={styles.role}>{isLoggedIn ? userName : 'Khách'}</Text>
+                {/* Đăng ký / Đăng nhập */}
+                {isLoggedIn ? (
+                    <TouchableOpacity onPress={handleLogout} style={styles.authButton}>
+                      <Text style={styles.authButtonText}>ĐĂNG XUẤT</Text>
+                    </TouchableOpacity>
+                  ) : (
+                    <TouchableOpacity onPress={() => navigation.navigate('Login')} style={styles.authButton}>
+                      <Text style={styles.authButtonText}>ĐĂNG NHẬP/ ĐĂNG KÝ</Text>
+                    </TouchableOpacity>   
+                )}
+                <MaterialIcons name="notifications-on" size={24} color="#6E3816" style={{marginLeft: 0}} />
+              </View> 
+
+              <View>
+              <TouchableOpacity onPress={openSearchScreen} activeOpacity={1}>
+                <TextInput
+                  style={styles.searchInput}
+                  placeholder="Tìm kiếm sản phẩm..."
+                  placeholderTextColor="#999"
+                  editable={false} 
+                  //onChangeText={handleSearch} // Hàm xử lý khi nhập nội dung tìm kiếm
+                />
+              </TouchableOpacity>
+              </View>
             </View>
+
           </View>
-          <MaterialIcons name="notifications-on" size={24} color="#6E3816" />
-          {/* <Ionicons name="notifications-on" size={24} color="#6E3816" /> */}
         </View>
 
         {/* Đăng ký / Đăng nhập */}
-        {isLoggedIn ? (
+        {/* {isLoggedIn ? (
           <TouchableOpacity onPress={handleLogout} style={styles.authButton}>
             <Text style={styles.authButtonText}>ĐĂNG XUẤT</Text>
           </TouchableOpacity>
@@ -123,7 +218,7 @@ const HomeScreen = () => {
           <TouchableOpacity onPress={() => navigation.navigate('Login')} style={styles.authButton}>
             <Text style={styles.authButtonText}>ĐĂNG NHẬP/ ĐĂNG KÝ</Text>
           </TouchableOpacity>   
-      )}
+        )} */}
         
 
         {/* Carousel */}
@@ -141,19 +236,6 @@ const HomeScreen = () => {
             </View>
           ))}
         </Swiper>
-
-        {/* <View style={styles.carousel}>
-        <Image
-          source={require('../assets/images/slide-1.png')}
-          style={styles.carouselImage}
-        />
-        <View style={styles.indicators}>
-          <View style={[styles.indicator, styles.activeIndicator]} />
-          <View style={styles.indicator} />
-          <View style={styles.indicator} />
-          <View style={styles.indicator} />
-        </View>
-      </View> */}
 
         {/* Giao hàng / Lấy tận nơi */}
         <View style={styles.optionsContainer}>
@@ -182,9 +264,24 @@ const HomeScreen = () => {
           </TouchableOpacity>
 
         </View>
+        
+        {/* Categories Horizontal List */}
+        <CategoriesComponent/>
+
+        {/* Hiển thị sản phẩm bán chạy với ProductCarousel */}
+        <View style={styles.productSection}>
+          <Text style={styles.sectionTitle}>Sản phẩm bán chạy</Text>
+          <ProductCarousel products={topSellingProducts} />
+        </View>
+
+        {/* Hiển thị sản phẩm theo danh mục và sắp xếp GIÁ tăng dần */}
+        <View style={styles.productSection}>
+          <Text style={styles.sectionTitle}>Món ngon phải thử</Text>
+          <CategoryProductList/>
+        </View>
 
         {/* Product Carousel */}
-        <ProductCarousel />
+        {/* <ProductCarousel /> */}
 
       </ScrollView>
       {/* Footer Navigation */}
@@ -194,42 +291,69 @@ const HomeScreen = () => {
 };
 
 const styles = StyleSheet.create({
+  headerBackground: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 120, // Chiều cao của phần cong
+    backgroundColor: '#123456',
+    borderBottomLeftRadius: 40,
+    borderBottomRightRadius: 40,
+    justifyContent: "center", // Căn giữa theo chiều dọc
+    alignItems: "center", // Căn giữa theo chiều ngang
+  },
+  websiteName: {
+    fontFamily: "Pacifico-Regular",
+    fontSize: 40,
+    color: '#FFFFFF',
+    marginBottom: 3, 
+    textShadowColor: "rgba(255, 215, 0, 0.8)", // Màu tỏa sáng vàng
+    textShadowOffset: { width: 0, height: 0 }, // Không dịch chuyển bóng
+    textShadowRadius: 15, // Bán kính tỏa sáng
+  },
   container: {
     flex: 1,
     backgroundColor: 'white',
+  },
+  authContainer: {
+    flexDirection: 'row',
+    marginTop: 5
   },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     padding: 16,
-    marginTop: 30,
+    marginTop: 130,
   },
   headerLeft: {
     flexDirection: 'row',
     alignItems: 'center',
   },
   profileImage: {
-    width: 40,
-    height: 40,
+    width: 50,
+    height: 50,
     backgroundColor: "#D9D9D9",
-    borderRadius: 20,
+    borderRadius: 25,
     marginRight: 8,
+    marginTop: -70
   },
   greeting: {
     //fontFamily: "Oswald-Regular",
-    fontSize: 14,
+    fontSize: 13,
     color: '#A2730C',
   },
   role: {
     //fontFamily: "Oswald-Regular",
-    fontSize: 12,
+    fontSize: 13,
     color: '#0A1858',
+    marginTop: 5
   },
   authButton: {
     backgroundColor: '#7EA172',
-    marginHorizontal: 16,
-    paddingVertical: 12,
+    marginHorizontal: 10,
+    padding: 8,
     borderRadius: 8,
     alignItems: 'center',
     marginBottom: 16,
@@ -241,10 +365,21 @@ const styles = StyleSheet.create({
   },
   authButtonText: {
     //fontFamily: "Oswald-Regular",
-    fontSize: 16,
+    fontSize: 12,
     color: '#FFFFFF',
     alignItems: 'center',
-    alignContent: 'center'
+    alignContent: 'center',
+  },
+  searchInput: {
+    marginTop: 12, 
+    padding: 10,
+    borderWidth: 1,
+    borderColor: '#ccc',
+    borderRadius: 8,
+    backgroundColor: '#f9f9f9',
+    marginLeft: -60,
+    marginRight: -60,
+    position: 'relative'
   },
   optionsContainer: {
     flexDirection: 'row',
@@ -326,6 +461,16 @@ const styles = StyleSheet.create({
     fontSize: 12,
     marginTop: 4,
   },
+  productSection: { 
+    marginTop: 20, 
+    paddingHorizontal: 15 
+  },
+  sectionTitle: { 
+    fontSize: 18, 
+    fontWeight: 'bold', 
+    marginTop: 10
+  },
+  
 });
 
 
