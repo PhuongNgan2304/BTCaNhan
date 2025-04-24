@@ -1,6 +1,7 @@
 const Category = require('../models/Category');
 const Product = require('../models/Product');
 const OrderDetail = require('../models/OrderDetail');
+const Favorite = require('../models/FavoriteProduct');
 
 exports.getAllCategories = async (req, res) => {
     try {
@@ -95,28 +96,32 @@ exports.getProductsByCategory = async (req, res) => {
 
 exports.searchProducts = async (req, res) => {
     try {
-        const { query, page = 1, limit = 10 } = req.query; 
+        const { query, sortBy, order = "asc", page = 1, limit = 10 } = req.query;
         if (!query) {
             return res.status(400).json({ success: false, message: 'Vui lòng nhập từ khóa tìm kiếm' });
         }
 
-        const searchRegex = new RegExp(query, 'i'); // 'i' là tìm kiếm không phân biệt chữ hoa/thường
-
-        const products = await Product.find({
+        const searchRegex = new RegExp(query, 'i');
+        let filter = {
             $or: [
                 { name: { $regex: searchRegex } },
                 { description: { $regex: searchRegex } }
             ]
-        })
+        };
+
+        let sortCriteria = {};
+        if (sortBy === "price") {
+            sortCriteria["price.S"] = order === "desc" ? -1 : 1;
+        } else if (sortBy === "name") {
+            sortCriteria.name = order === "desc" ? -1 : 1;
+        }
+
+        const products = await Product.find(filter)
+            .sort(sortCriteria) 
             .skip((page - 1) * limit)
             .limit(parseInt(limit));
 
-        const totalProducts = await Product.countDocuments({
-            $or: [
-                { name: { $regex: searchRegex } },
-                { description: { $regex: searchRegex } }
-            ]
-        });
+        const totalProducts = await Product.countDocuments(filter);
 
         res.status(200).json({
             success: true,
@@ -128,5 +133,126 @@ exports.searchProducts = async (req, res) => {
         });
     } catch (error) {
         res.status(500).json({ success: false, message: 'Lỗi server', error: error.message });
+    }
+};
+
+
+exports.filterAndSortProducts = async (req, res) => {
+    try {
+        const { query, category, sortBy, order = "asc", page = 1, limit = 10 } = req.query;
+
+        let filter = {};
+
+        if (category) {
+            const categoryData = await Category.findOne({ name: category });
+            if (!categoryData) {
+                return res.status(404).json({ success: false, message: "Category không tồn tại" });
+            }
+            filter.category = categoryData._id;
+        }
+
+        if (query) {
+            const searchRegex = new RegExp(query, "i");
+            filter.$or = [
+                { name: { $regex: searchRegex } },
+                { description: { $regex: searchRegex } }
+            ];
+        }
+
+        let sortCriteria = {};
+        if (sortBy) {
+            if (sortBy === "price") {
+                sortCriteria["price.S"] = order === "desc" ? -1 : 1;
+            } else if (sortBy === "name") {
+                sortCriteria.name = order === "desc" ? -1 : 1;
+            }
+        }
+
+        const products = await Product.find(filter)
+            .sort(sortCriteria)
+            .skip((page - 1) * limit)
+            .limit(parseInt(limit));
+
+        const totalProducts = await Product.countDocuments(filter);
+
+        res.status(200).json({
+            success: true,
+            data: {
+                products,
+                currentPage: parseInt(page),
+                totalPages: Math.ceil(totalProducts / limit),
+            },
+        });
+    } catch (error) {
+        res.status(500).json({ success: false, message: "Lỗi server", error: error.message });
+    }
+};
+
+exports.checkFavoriteStatus = async (req, res) => {
+    try {
+        const { userId, productId } = req.body;
+
+        const favorite = await Favorite.findOne({ user: userId });
+
+        if (!favorite) {
+            return res.status(200).json({ isFavorite: false });
+        }
+
+        const isFavorite = favorite.products.includes(productId);
+
+        res.status(200).json({ isFavorite });
+    } catch (error) {
+        res.status(500).json({ message: "Server error", error: error.message });
+    }
+};
+
+
+exports.addToFavorites = async (req, res) => {
+    try {
+        const { userId, productId } = req.body;
+
+        let favorite = await Favorite.findOne({ user: userId });
+
+        if (!favorite) {
+            favorite = new Favorite({
+                user: userId,
+                products: [productId],
+            });
+            await favorite.save();
+            return res.status(201).json({ message: 'Product added to favorites', favorite });
+        }
+
+        if (favorite.products.includes(productId)) {
+            return res.status(400).json({ message: 'Product is already in favorites' });
+        }
+        favorite.products.push(productId);
+        await favorite.save();
+
+        res.status(200).json({ message: 'Product added to favorites', favorite });
+    } catch (error) {
+        res.status(500).json({ message: 'Server error', error: error.message });
+    }
+};
+
+exports.removeFromFavorites = async (req, res) => {
+    try {
+        const { userId, productId } = req.body;
+
+        let favorite = await Favorite.findOne({ user: userId });
+
+        if (!favorite) {
+            return res.status(400).json({ message: 'No favorites found for this user' });
+        }
+
+        if (!favorite.products.includes(productId)) {
+            return res.status(400).json({ message: 'Product not found in favorites' });
+        }
+
+        favorite.products = favorite.products.filter(product => product.toString() !== productId.toString());
+        await favorite.save();
+
+        res.status(200).json({ message: 'Product removed from favorites', favorite });
+    } catch (error) {
+        res.status(500).json({ message: 'Server error', error: error.message });
     }
 };
